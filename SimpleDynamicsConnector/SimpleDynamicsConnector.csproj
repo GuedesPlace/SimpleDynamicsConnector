@@ -6,10 +6,19 @@
     <Nullable>enable</Nullable>
     <PackageId>GuedesPlace.SimpleDynamicsConnector</PackageId>
     <Version>1.0.1</Version>
-    <Authors>Christian Güdemann</Authors>donte
+    <Authors>Christian Güdemann</Authors>
     <Company>GuedesPlace</Company>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageReadmeFile>README.MD</PackageReadmeFile>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <Description>GuedesPlace.SimpleDynamicsConnector provides a simple way to access data from Dynamics/Dataverse inspired by Microsofts XRM.webApi.</Description>
+    <Copyright>Christian Güdemann</Copyright>
+    <PackageTags>Azure, Dynamics, Dataverse</PackageTags>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <RepositoryUrl>https://github.com/GuedesPlace/SimpleDynamicsConnector.git</RepositoryUrl> 
+    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,7 +27,7 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
   <ItemGroup>
-        <None Include="../README.MD" Pack="true" PackagePath="\"/>
-        <None Include="../LICENSE" Pack="true" PackagePath="\"/>
-    </ItemGroup>
+    <None Include="..\README.MD" Pack="true" PackagePath="\" />
+    <None Include="..\LICENSE" Pack="true" PackagePath="\" />
+  </ItemGroup>
 </Project>
