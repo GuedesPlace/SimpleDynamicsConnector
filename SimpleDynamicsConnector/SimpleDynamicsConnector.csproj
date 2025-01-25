@@ -5,10 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>GuedesPlace.SimpleDynamicsConnector</PackageId>
-    <Version>1.0.0</Version>
-    <Authors>Christian Güdemann</Authors>
+    <Version>1.0.1</Version>
+    <Authors>Christian Güdemann</Authors>donte
     <Company>GuedesPlace</Company>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageReadmeFile>README.MD</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,4 +17,8 @@
     <PackageReference Include="Microsoft.Identity.Client" Version="4.67.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
+  <ItemGroup>
+        <None Include="../README.MD" Pack="true" PackagePath="\"/>
+        <None Include="../LICENSE" Pack="true" PackagePath="\"/>
+    </ItemGroup>
 </Project>
