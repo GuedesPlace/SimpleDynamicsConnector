@@ -127,12 +127,12 @@ public class SimpleDynamicsConnector
         return await BuildResultObject<MultipleRecordsResponse<T>>(response);
     }
 
-    public async Task<IEnumerable<T>> RetrieveAllMultipleRecordsAsync<T>(string entityName, string options, int maxPageSize = 5000)
+    public async Task<ICollection<T>> RetrieveAllMultipleRecordsAsync<T>(string entityName, string options, int maxPageSize = 5000)
     {
         var path = BuildPluralNameForEntity(entityName) + options;
         return await GetAllAsync<T>(path, maxPageSize);
     }
-    public async Task<IEnumerable<T>> GetAllAsync<T>(string path, int pagsize = 5000)
+    public async Task<ICollection<T>> GetAllAsync<T>(string path, int pagsize = 5000)
     {
         IEnumerable<T> result = new List<T>();
         string? pathToProcess = path;
@@ -152,7 +152,7 @@ public class SimpleDynamicsConnector
                 }
             }
         }
-        return result;
+        return result.ToList();
     }
 
     public async Task<T?> GetAsync<T>(string path)
