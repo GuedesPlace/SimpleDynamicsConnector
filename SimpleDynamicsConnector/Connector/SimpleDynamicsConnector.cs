@@ -11,16 +11,15 @@ public class SimpleDynamicsConnector
 {
     public static readonly string MEDIAJSON = "application/json";
     public static readonly string APIPATH = "/api/data/v9.2/";
-    private readonly IConfidentialClientApplication clientAuthApp;
+    private readonly IConfidentialClientApplication _clientAuthApp;
     private readonly HttpClient _client;
-    private DateTimeOffset _tokenExpiresOn = DateTimeOffset.UtcNow.AddDays(-1);
     private readonly DynamicsConnectionConfiguration _configuration;
     public SimpleDynamicsConnector(HttpClient client, IOptions<DynamicsConnectionConfiguration> configuration)
     {
         _configuration = configuration.Value;
         string authority = $"https://login.microsoftonline.com/{_configuration.TenantId}";
 
-        clientAuthApp = ConfidentialClientApplicationBuilder.Create(_configuration.ApplicationId).WithClientSecret(_configuration.ApplicationSecret).WithAuthority(authority).Build();
+        _clientAuthApp = ConfidentialClientApplicationBuilder.Create(_configuration.ApplicationId).WithClientSecret(_configuration.ApplicationSecret).WithAuthority(authority).Build();
         _client = client;
         _client.BaseAddress = new Uri(_configuration.CrmUrl + APIPATH);
         _client.DefaultRequestHeaders.Add("Prefer", "odata.include-annotations=\"*\"");
@@ -30,20 +29,8 @@ public class SimpleDynamicsConnector
         _client.DefaultRequestHeaders.Add("OData-Version", "4.0");
     }
 
-    private async Task<bool> RetrieveTokenAsync()
+    public HttpClient GetClient()
     {
-        var authResult = await clientAuthApp.AcquireTokenForClient([$"{_configuration.CrmUrl}/.default"]).ExecuteAsync().ConfigureAwait(false);
-        _tokenExpiresOn = authResult.ExpiresOn;
-        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
-        return true;
-    }
-
-    public async Task<HttpClient> GetClientAsync()
-    {
-        if (DateTimeOffset.UtcNow.AddSeconds(-2) > _tokenExpiresOn)
-        {
-            await RetrieveTokenAsync();
-        }
         return _client;
     }
     public string GetFullUrl()
@@ -51,15 +38,21 @@ public class SimpleDynamicsConnector
         return _client.BaseAddress!.AbsoluteUri;
     }
 
+    public async Task<HttpRequestMessage> BuildRequestMessageAsync(HttpMethod method, string path) {
+        var request = new HttpRequestMessage(method,path);
+        var authResult = await _clientAuthApp.AcquireTokenForClient([$"{_configuration.CrmUrl}/.default"]).ExecuteAsync();
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+        return request;
+    }
+
     public async Task<Guid> CreateRecordAsync(string entityName, object payload)
     {
         string payloadAsString = JsonConvert.SerializeObject(payload, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
         StringContent content = new StringContent(payloadAsString, Encoding.UTF8, MEDIAJSON);
-        HttpClient client = await GetClientAsync();
         var path = BuildPluralNameForEntity(entityName);
-        using HttpRequestMessage request = new(HttpMethod.Post, path);
+        using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Post, path);
         request.Content = content;
-        using HttpResponseMessage response = await client.SendAsync(request);
+        using HttpResponseMessage response = await _client.SendAsync(request);
         if (response.IsSuccessStatusCode)
         {
             HttpResponseHeaders headers = response.Headers;
@@ -78,11 +71,10 @@ public class SimpleDynamicsConnector
     {
         string payloadAsString = JsonConvert.SerializeObject(payload, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
         StringContent content = new StringContent(payloadAsString, Encoding.UTF8, MEDIAJSON);
-        HttpClient client = await GetClientAsync();
         var path = $"{BuildPluralNameForEntity(entityName)}({id})";
-        using HttpRequestMessage request = new(HttpMethod.Patch, path);
+        using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Patch, path);
         request.Content = content;
-        using HttpResponseMessage response = await client.SendAsync(request);
+        using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
             throw await BuildException("PATCH", path, response, payloadAsString);
@@ -92,9 +84,8 @@ public class SimpleDynamicsConnector
     public async Task DeleteRecordAsync(string entityName, Guid id)
     {
         var path = $"{BuildPluralNameForEntity(entityName)}({id})";
-        HttpClient client = await GetClientAsync();
-        using HttpRequestMessage request = new(HttpMethod.Delete, path);
-        using HttpResponseMessage response = await client.SendAsync(request);
+        using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Delete, path);
+        using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
             throw await BuildException("DELETE", path, response, "");
@@ -103,9 +94,8 @@ public class SimpleDynamicsConnector
     public async Task<T?> RetrieveRecordAsync<T>(string entityName, Guid id, string options = "")
     {
         var path = $"{BuildPluralNameForEntity(entityName)}({id})" + options;
-        HttpClient client = await GetClientAsync();
-        using HttpRequestMessage request = new(HttpMethod.Get, path);
-        using HttpResponseMessage response = await client.SendAsync(request);
+        using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Get, path);
+        using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
             throw await BuildException("GET", path, response, "");
@@ -116,10 +106,9 @@ public class SimpleDynamicsConnector
     public async Task<MultipleRecordsResponse<T>?> RetrieveMultipleRecordsAsync<T>(string entityName, string options = "", int maxPageSize = 5000)
     {
         var path = BuildPluralNameForEntity(entityName) + options;
-        HttpClient client = await GetClientAsync();
-        using HttpRequestMessage request = new(HttpMethod.Get, path);
+        using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Get, path);
         request.Headers.Add("Prefer", $"odata.maxpagesize={maxPageSize},odata.include-annotations=\"*\"");
-        using HttpResponseMessage response = await client.SendAsync(request);
+        using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
             throw await BuildException("GET", path, response, "");
@@ -134,7 +123,7 @@ public class SimpleDynamicsConnector
     }
     public async Task<ICollection<T>> GetAllAsync<T>(string path, int pagsize = 5000)
     {
-        IEnumerable<T> result = new List<T>();
+        IEnumerable<T> result = [];
         string? pathToProcess = path;
         while (pathToProcess != null)
         {
@@ -152,14 +141,13 @@ public class SimpleDynamicsConnector
                 }
             }
         }
-        return result.ToList();
+        return [.. result];
     }
 
     public async Task<T?> GetAsync<T>(string path)
     {
-        HttpClient client = await GetClientAsync();
-        using HttpRequestMessage request = new(HttpMethod.Get, path);
-        using HttpResponseMessage response = await client.SendAsync(request);
+        using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Get, path);
+        using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
             throw await BuildException("GET", path, response, "");
@@ -168,10 +156,9 @@ public class SimpleDynamicsConnector
     }
     public async Task<T?> GetAsync<T>(string path, int maxPageSize)
     {
-        HttpClient client = await GetClientAsync();
-        using HttpRequestMessage request = new(HttpMethod.Get, path);
+        using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Get, path);
         request.Headers.Add("Prefer", $"odata.maxpagesize={maxPageSize},odata.include-annotations=\"*\"");
-        using HttpResponseMessage response = await client.SendAsync(request);
+        using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
             throw await BuildException("GET", path, response, "");
@@ -181,9 +168,8 @@ public class SimpleDynamicsConnector
 
     public async Task<Stream> GetBinaryAsync(string path)
     {
-        HttpClient client = await GetClientAsync();
-        using HttpRequestMessage request = new(HttpMethod.Get, path);
-        using HttpResponseMessage response = await client.SendAsync(request);
+        using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Get, path);
+        using HttpResponseMessage response = await _client.SendAsync(request);
         response.EnsureSuccessStatusCode();
         var memoryStream = new MemoryStream();
         var httpsContentStream = await response.Content.ReadAsStreamAsync();
@@ -195,10 +181,9 @@ public class SimpleDynamicsConnector
     {
         string payload = JsonConvert.SerializeObject(postData, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
         StringContent content = new StringContent(payload, Encoding.UTF8, MEDIAJSON);
-        HttpClient client = await GetClientAsync();
-        using HttpRequestMessage request = new(HttpMethod.Post, path);
+        using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Post, path);
         request.Content = content;
-        using HttpResponseMessage response = await client.SendAsync(request);
+        using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
             throw await BuildException("POST", path, response, payload);
@@ -214,9 +199,8 @@ public class SimpleDynamicsConnector
 
     public async Task<string> ExecuteBatchAsync(ICollection<BatchInstruction> instructions)
     {
-        HttpClient client = await GetClientAsync();
-        using HttpRequestMessage request = new(HttpMethod.Post, "$batch");
-        var batchToken = $"--batch_{DateTime.Now.ToString("yyyyddHHMMss")}";
+        using HttpRequestMessage request =await BuildRequestMessageAsync(HttpMethod.Post, "$batch");
+        var batchToken = $"--batch_{DateTime.Now.ToString("yyyyMMddHMMss")}";
 
         var batchPayloadElements = instructions.Select(instruction =>
         {
@@ -235,7 +219,7 @@ Content-Type: application/json;type=entry
         StringContent content = new StringContent(batchPayload, Encoding.UTF8);
         content.Headers.ContentType = batchHeader;
         request.Content = content;
-        using HttpResponseMessage response = await client.SendAsync(request);
+        using HttpResponseMessage response = await _client.SendAsync(request);
         if (response.IsSuccessStatusCode)
         {
             return await response.Content.ReadAsStringAsync();
@@ -273,4 +257,3 @@ Content-Type: application/json;type=entry
                entityName + "s";
     }
 }
-

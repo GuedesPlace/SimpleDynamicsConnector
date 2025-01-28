@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>GuedesPlace.SimpleDynamicsConnector</PackageId>
-    <Version>1.0.2</Version>
+    <Version>1.1.0-alpha1</Version>
     <Authors>Christian Güdemann</Authors>
     <Company>GuedesPlace</Company>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
