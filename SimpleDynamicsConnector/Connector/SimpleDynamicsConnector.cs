@@ -3,7 +3,9 @@ using System.Net.Http.Headers;
 using Newtonsoft.Json;
 using System.Text;
 using GuedesPlace.SimpleDynamicsConnector.Models;
+using GuedesPlace.SimpleDynamicsConnector.Extensions;
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json.Linq;
 
 namespace GuedesPlace.SimpleDynamicsConnector;
 
@@ -38,8 +40,9 @@ public class SimpleDynamicsConnector
         return _client.BaseAddress!.AbsoluteUri;
     }
 
-    public async Task<HttpRequestMessage> BuildRequestMessageAsync(HttpMethod method, string path) {
-        var request = new HttpRequestMessage(method,path);
+    public async Task<HttpRequestMessage> BuildRequestMessageAsync(HttpMethod method, string path)
+    {
+        var request = new HttpRequestMessage(method, path);
         var authResult = await _clientAuthApp.AcquireTokenForClient([$"{_configuration.CrmUrl}/.default"]).ExecuteAsync();
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
         return request;
@@ -190,6 +193,70 @@ public class SimpleDynamicsConnector
         }
         return await BuildResultObject<T>(response);
     }
+    public async Task<T?> ExecuteInitializeFrom<T>(EntityReference entityMoniker, string targetLogicalName)
+    {
+        var queryString = $"InitializeFrom(EntityMoniker=@p1,TargetEntityName=@p2,TargetFieldType=@p3)?@p1={entityMoniker.BuildODataIdStamp(this)}&@p2='{targetLogicalName}'&@p3=Microsoft.Dynamics.CRM.TargetFieldType'ValidForCreate'";
+        return await GetAsync<T>(queryString);
+    }
+    public async Task<ICollection<T>> GetChildrenWithAllColumns<T>(string entityName, string relationFieldName, Guid parentId, string[]? columnNames= null)
+    {
+        var select = columnNames != null ? $"&$select={string.Join(",", columnNames)}":"";
+        var filter = $"?$filter={relationFieldName} eq {parentId}";
+        return await RetrieveAllMultipleRecordsAsync<T>(entityName, filter+select);
+
+    }
+    public async Task<ICollection<T>> GetM2NChildrenWithAllColumns<T>(EntityReference parentEntity, string relationFieldName, string[]? columnNames= null)
+    {
+        var select = columnNames != null ? $"($select={string.Join(",", columnNames)})":"";
+        var entity = await RetrieveRecordAsync<JObject>(parentEntity.LogicalName, parentEntity.Id, $"?$expand={relationFieldName}{select}");
+        if (entity == null)
+        {
+            return [];
+        }
+        if (entity.TryGetValue(relationFieldName, out var entityValue))
+        {
+            return entityValue.ToObject<List<T>>() ?? [];
+        }
+        else
+        {
+            return [];
+        }
+    }
+
+    public async Task AddRelationship(EntityReference parent, List<EntityReference> relReferences, string fieldName)
+    {
+        if (relReferences.Count == 0)
+        {
+            return;
+        }
+        var basePostUrl = $"{parent.BuildODataBindReference(this)}/{fieldName}/$ref";
+        if (relReferences.Count == 1)
+        {
+            JObject payload = new JObject();
+            payload["@odata.id"] = $"{GetFullUrl()}{relReferences[0].BuildODataBindReference(this)}";
+            payload["@odata.context"] = $"{GetFullUrl()}$metadata#$ref";
+            await PostAsync<JObject>(basePostUrl, payload);
+        }
+        else
+        {
+            foreach (EntityReference relReference in relReferences)
+            {
+                JObject payload = new JObject();
+                payload["@odata.id"] = $"{GetFullUrl()}{relReference.BuildODataBindReference(this)}";
+                payload["@odata.context"] = $"{GetFullUrl()}$metadata#$ref";
+                await PostAsync<JObject>(basePostUrl, payload);
+            }
+        }
+    }
+    public async Task RemoveRelationship(EntityReference parent, string relationField, Guid relReference) {
+        var path = $"{BuildPluralNameForEntity(parent.LogicalName)}({parent.Id})/{relationField}({relReference})/$ref";
+        using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Delete, path);
+        using HttpResponseMessage response = await _client.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw await BuildException("DELETE", path, response, "");
+        }
+    }
 
     private static async Task<T?> BuildResultObject<T>(HttpResponseMessage response)
     {
@@ -199,7 +266,7 @@ public class SimpleDynamicsConnector
 
     public async Task<string> ExecuteBatchAsync(ICollection<BatchInstruction> instructions)
     {
-        using HttpRequestMessage request =await BuildRequestMessageAsync(HttpMethod.Post, "$batch");
+        using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Post, "$batch");
         var batchToken = $"--batch_{DateTime.Now.ToString("yyyyMMddHMMss")}";
 
         var batchPayloadElements = instructions.Select(instruction =>
@@ -244,7 +311,7 @@ Content-Type: application/json;type=entry
           ));
         return header;
     }
-    private string BuildPluralNameForEntity(string entityName)
+    public string BuildPluralNameForEntity(string entityName)
     {
         if (_configuration.CustomTablePluralMapping.ContainsKey(entityName))
         {
