@@ -1,6 +1,6 @@
 # SimpleDynamicsConnector
 
-Inspired by WebGates [DynamicsConnector](https://github.com/WebGateConsultingAG/DynamicsConnector) the SimpleDynamicsConnector is a lightweight implementation, following the naming and attributes of Microsofts XRM.webApi. The many goal is to provide an connector, which is injectable in any service, to do the main CRUD operations.
+Inspired by WebGates [DynamicsConnector](https://github.com/WebGateConsultingAG/DynamicsConnector) the SimpleDynamicsConnector is a lightweight implementation, following the naming and attributes of Microsofts XRM.webApi. The main goal is to provide an connector, which is injectable in any service, to do the main CRUD operations.
 As the call signature is comparable to Microsofts XRM.webApi, the query can be exchange between the two frameworks. This should help to establish a common conversation on the same calls and topics.
 
 As we are talking Dynamics, we could also say Dataverse.
