@@ -7,10 +7,49 @@ As we are talking Dynamics, we could also say Dataverse.
 
 # How to use
 
-## Prepare to use as Connector
-The SimpleDynamicsConnector is as a HttpClient defined. The following example show how to define the DynamicsConnectionConfiguration (as IOptions) and wrap the client with Polly to extend retry capabilities.
+## Requirements
+- **.NET 10** or higher (Version 2.0.0+)
+- For .NET 8 or .NET 9 support, use version 1.2.1
 
-Add the following stuff to the Program.cs (Adapt if your are using IHostBuilder instead)
+## Prepare to use as Connector
+
+### Version 2.x and higher (Recommended)
+Starting with version 2.0.0, SimpleDynamicsConnector provides a convenient extension method for easy registration. This is the recommended approach for new implementations.
+
+Add the following code to your Program.cs (Adapt if you are using IHostBuilder instead):
+
+```c#
+//Builder can be any Type of IHostApplicationBuilder
+var builder = WebApplication.CreateBuilder(args);
+
+var applicationId = builder.Configuration["crmApplicationId"];
+var applicationSecret = builder.Configuration["crmApplicationSecret"];
+var tenantId = builder.Configuration["tenantId"];
+var crmUrl = builder.Configuration["crmUrl"];
+
+// Register SimpleDynamicsConnector with the extension method
+builder.Services.AddSimpleDynamicsConnector(
+    crmUrl: crmUrl,
+    tenantId: tenantId,
+    applicationId: applicationId,
+    applicationSecret: applicationSecret,
+    customPluralTableNames: null // Optional: Dictionary<string, string> for custom entity plural names
+);
+```
+
+The extension method automatically:
+- Registers the `DynamicsConnectionConfiguration`
+- Configures the HttpClient with proper headers and base address
+- Registers `IConfidentialClientApplication` as a keyed singleton for token management
+- **Built-in Resilience**: Automatic retry with `RetryAfter` header support for Dynamics/Dataverse rate limiting (429 responses)
+  - Respects server-provided `RetryAfter` timing (capped at 60 seconds)
+  - Falls back to exponential backoff for other transient errors (408, 500-504)
+  - 3 retry attempts with timeout handling (30 seconds per request)
+
+The SimpleDynamicsConnector can now be injected in any Service.
+
+### Legacy Version (up to 1.2.1)
+For older versions (1.2.1 and below), use the manual configuration approach:
 
 ```c#
 //Builder can be any Type of IHostApplicationBuilder
@@ -28,9 +67,9 @@ builder.Services.AddOptions<DynamicsConnectionConfiguration>().Configure(c =>
     c.ApplicationSecret = applicationSecret;
     c.CrmUrl = crmUrl;
     c.TenantId = tenantId;
-
 });
-//Adding the SimpleDynamicsConnetor as HTTP Client and Wrapping with retry Policy
+
+//Adding the SimpleDynamicsConnector as HTTP Client and Wrapping with retry Policy
 builder.Services.AddHttpClient<SimpleDynamicsConnector>().AddPolicyHandler(Policy.HandleResult<HttpResponseMessage>
         (msg => msg.Headers.RetryAfter is not null)
         .WaitAndRetryAsync(
@@ -39,7 +78,8 @@ builder.Services.AddHttpClient<SimpleDynamicsConnector>().AddPolicyHandler(Polic
             onRetryAsync: (_, _, _, _) => Task.CompletedTask
         ));
 ```
-The SimpleDynamicsConnector can now be injected in any Service.
+
+**Note:** This approach is deprecated and will not be supported in version 2.0.0 and higher due to internal refactoring of the constructor signature.
 
 ## Using SimpleDynamicsConnector
 For the samples we are talking about Accounts in Dynamics. Assume that you have defined an Account POCO that looks a bit like this:
@@ -161,6 +201,23 @@ Additionally a header for the max count of returning entities is added.
 The submitted path will be used and executed. The result will be returned as Stream. This function can be used to grab entity images or attached files.
 ### PostAsync<T>(string path, object postData)
 The submitted path will be used to post the postData as serialized Json payload. The result will be serialized to the specified type. This function can be used to execute Actions and Functions.
+
+## Resilience and Retry Configuration
+Version 2.0.0+ includes built-in resilience using modern .NET patterns (Polly V8). The default configuration handles:
+
+**Automatic Retry Scenarios:**
+- **429 Too Many Requests**: Respects `RetryAfter` header from Dynamics/Dataverse (capped at 120 seconds)
+- **408 Request Timeout**: Exponential backoff retry
+- **500-504 Server Errors**: Exponential backoff retry
+- **Network Failures**: Exponential backoff retry
+
+**Default Settings:**
+- Max retry attempts: 3
+- Timeout per request: 60 seconds
+- Exponential backoff with jitter
+- Base delay: 100ms
+
+The resilience is configured automatically and requires no additional setup. Advanced users who need custom retry behavior can access the underlying `IHttpClientBuilder` returned by `AddSimpleDynamicsConnector()`.
 
 # LICENSE
 The project is under [Apache V2.0](LICENSE)  

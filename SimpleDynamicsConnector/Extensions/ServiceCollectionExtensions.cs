@@ -3,6 +3,9 @@ using Microsoft.Extensions.Options;
 using Microsoft.Identity.Client;
 using GuedesPlace.SimpleDynamicsConnector.Models;
 using System.Net.Http.Headers;
+using Polly;
+using Polly.Retry;
+using System.Net;
 
 namespace GuedesPlace.SimpleDynamicsConnector.Extensions;
 
@@ -51,7 +54,7 @@ public static class ServiceCollectionExtensions
             return clientApp;
         });
 
-        // Register HttpClient for SimpleDynamicsConnector
+        // Register HttpClient for SimpleDynamicsConnector with resilience
         services.AddHttpClient<SimpleDynamicsConnector>((serviceProvider, client) =>
         {
             var configuration = serviceProvider.GetRequiredService<IOptions<DynamicsConnectionConfiguration>>().Value;
@@ -65,6 +68,42 @@ public static class ServiceCollectionExtensions
             client.DefaultRequestHeaders.AcceptCharset.Add(new StringWithQualityHeaderValue("utf-8"));
             client.DefaultRequestHeaders.Add("OData-MaxVersion", "4.0");
             client.DefaultRequestHeaders.Add("OData-Version", "4.0");
+        })
+        .AddResilienceHandler("DynamicsResilienceHandler", (builder, context) =>
+        {
+            // Add retry policy with RetryAfter header support
+            builder.AddRetry(new RetryStrategyOptions<HttpResponseMessage>
+            {
+                MaxRetryAttempts = 3,
+                BackoffType = DelayBackoffType.Exponential,
+                UseJitter = true,
+                Delay = TimeSpan.FromMilliseconds(100),
+                ShouldHandle = new PredicateBuilder<HttpResponseMessage>()
+                    .Handle<HttpRequestException>()
+                    .HandleResult(response =>
+                        response.StatusCode == HttpStatusCode.RequestTimeout ||
+                        response.StatusCode == HttpStatusCode.TooManyRequests ||
+                        response.StatusCode >= HttpStatusCode.InternalServerError),
+                DelayGenerator = args =>
+                {
+                    var response = args.Outcome.Result;
+                    // Respect RetryAfter header if present (especially for 429)
+                    if (response?.Headers.RetryAfter?.Delta.HasValue ?? false)
+                    {
+                        var retryAfter = response.Headers.RetryAfter.Delta.Value;
+                        // Cap at 60 seconds maximum
+                        var delay = retryAfter > TimeSpan.FromSeconds(120) 
+                            ? TimeSpan.FromSeconds(120) 
+                            : retryAfter;
+                        return new ValueTask<TimeSpan?>(delay);
+                    }
+                    // Fall back to default exponential backoff
+                    return new ValueTask<TimeSpan?>((TimeSpan?)null);
+                }
+            });
+
+            // Add timeout policy
+            builder.AddTimeout(TimeSpan.FromSeconds(60));
         });
 
         return services;
