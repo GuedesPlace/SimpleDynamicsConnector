@@ -1,12 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net10.0;net9.0</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>GuedesPlace.SimpleDynamicsConnector</PackageId>
     <RootNamespace>GuedesPlace.SimpleDynamicsConnector</RootNamespace>
-    <Version>2.0.0</Version>
+    <Version>2.0.1</Version>
     <Authors>Christian Güdemann</Authors>
     <Company>GuedesPlace</Company>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -20,6 +20,8 @@
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <RepositoryUrl>https://github.com/GuedesPlace/SimpleDynamicsConnector.git</RepositoryUrl> 
     <RepositoryType>git</RepositoryType>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
   <ItemGroup>
