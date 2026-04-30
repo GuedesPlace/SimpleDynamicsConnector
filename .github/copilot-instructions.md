@@ -153,6 +153,107 @@ var options = "?$expand=primarycontactid($select=fullname)";
 - Include parameter descriptions for extension methods
 - Note version-specific features clearly
 
+## CHANGELOG Management
+
+The project maintains a comprehensive CHANGELOG.MD following the [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+
+### Format and Structure
+- **Language**: English (bilingual support with German was discontinued after v2.0.0)
+- **Format**: Keep a Changelog 1.0.0 standard
+- **Versioning**: Semantic Versioning (SemVer 2.0.0)
+- **Location**: `/CHANGELOG.MD` at repository root
+
+### When to Update
+- **Before each release**: Document all changes since the last version
+- **During development**: Consider maintaining an "Unreleased" section for work in progress
+- **Breaking changes**: Document immediately when introduced
+- **Dependency updates**: Note major version changes of key dependencies
+
+### Required Sections for New Versions
+Each version entry must include:
+
+1. **Version Header**: `## [X.Y.Z] - YYYY-MM-DD`
+2. **Breaking Changes** (⚠️): Most important - document first
+   - What changed and why
+   - Migration impact for users
+   - Code examples showing old vs. new approach
+3. **New Features** (✨): Major functionality additions
+   - Feature description
+   - Usage examples
+   - Benefits to users
+4. **Improvements** (🔧): Enhancements to existing features
+   - Performance improvements
+   - Better error handling
+   - Enhanced configuration options
+5. **Dependencies** (📦): Package changes
+   - New dependencies with purpose
+   - Updated dependencies with version comparison table
+   - Removed dependencies with migration notes
+6. **Migration Guide** (📖): For breaking changes
+   - Step-by-step checklist
+   - Before/after code examples
+   - Testing recommendations
+7. **Backward Compatibility** (📝): What stayed the same
+   - List unchanged APIs
+   - Reassure users about stability
+
+### Content Guidelines
+
+**Breaking Changes:**
+- Start with framework requirements (.NET version changes)
+- Document DI registration changes with full code examples
+- Show constructor signature changes
+- Explain configuration model changes
+- Provide clear migration path
+
+**Code Examples:**
+- Include complete, compilable code snippets
+- Show both old (v1.x) and new (v2.x) approaches
+- Use realistic variable names and configuration
+- Add comments explaining key changes
+
+**Migration Guides:**
+- Provide interactive checklist format (- [ ] items)
+- Include all required steps in order
+- Add testing checkpoints
+- Show complete before/after Program.cs examples
+
+**Dependencies:**
+- Use tables for version comparisons
+- Explain purpose of new packages
+- Note transitive dependencies
+- Document removed packages with alternatives
+
+### Language and Tone
+- **Technical but accessible**: Explain impacts clearly
+- **User-focused**: Emphasize benefits and migration ease
+- **Consistent terminology**: Use project vocabulary (e.g., "DI registration", "resilience handler")
+- **Action-oriented**: Use imperative mood for checklists
+
+### Version-Specific Notes
+- **v2.0.0**: First version with comprehensive changelog
+- **v1.2.1**: Documented as legacy version for .NET 8/9 support
+- Link to GitHub releases at bottom: `[X.Y.Z]: https://github.com/GuedesPlace/SimpleDynamicsConnector/releases/tag/vX.Y.Z`
+
+### Best Practices
+- Keep entries concise but complete
+- Cross-reference with README.MD for consistency
+- Update version in SimpleDynamicsConnector.csproj simultaneously
+- Tag releases in Git matching CHANGELOG versions
+- Include emoji icons for visual section identification
+- Document user impact, not internal implementation details
+
+### Copilot Instructions for CHANGELOG Updates
+When asked to update CHANGELOG.MD:
+1. Read current CHANGELOG.MD first
+2. Determine if this is a new version or unreleased changes
+3. Follow the section structure outlined above
+4. Include all relevant code examples
+5. Create migration guides for breaking changes
+6. Use English language
+7. Maintain Keep a Changelog format
+8. Add release links at the bottom
+
 ## Security Guidelines
 - Never log sensitive data (tokens, secrets, credentials)
 - Use secure string handling for secrets
