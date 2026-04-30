@@ -22,6 +22,7 @@ public class SimpleDynamicsConnector
         string authority = $"https://login.microsoftonline.com/{_configuration.TenantId}";
 
         _clientAuthApp = ConfidentialClientApplicationBuilder.Create(_configuration.ApplicationId).WithClientSecret(_configuration.ApplicationSecret).WithAuthority(authority).Build();
+        _clientAuthApp.AppTokenCache.SetCacheOptions(CacheOptions.EnableSharedCacheOptions);
         _client = client;
         _client.BaseAddress = new Uri(_configuration.CrmUrl + APIPATH);
         _client.DefaultRequestHeaders.Add("Prefer", "odata.include-annotations=\"*\"");
@@ -43,9 +44,23 @@ public class SimpleDynamicsConnector
     public async Task<HttpRequestMessage> BuildRequestMessageAsync(HttpMethod method, string path)
     {
         var request = new HttpRequestMessage(method, path);
-        var authResult = await _clientAuthApp.AcquireTokenForClient([$"{_configuration.CrmUrl}/.default"]).ExecuteAsync();
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
-        return request;
+        int maxRetries = 3;
+        for (int i = 0; i < maxRetries; i++)
+        {
+            try
+            {
+                var authResult = await _clientAuthApp
+                    .AcquireTokenForClient([$"{_configuration.CrmUrl}/.default"])
+                    .ExecuteAsync();
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
+                return request;
+            }
+            catch (HttpRequestException) when (i < maxRetries - 1)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(Math.Pow(2, i) * 100));
+            }
+        }
+        throw new HttpRequestException("Failed to acquire token after multiple retries.");
     }
 
     public async Task<Guid> CreateRecordAsync(string entityName, object payload)
@@ -198,16 +213,16 @@ public class SimpleDynamicsConnector
         var queryString = $"InitializeFrom(EntityMoniker=@p1,TargetEntityName=@p2,TargetFieldType=@p3)?@p1={entityMoniker.BuildODataIdStamp(this)}&@p2='{targetLogicalName}'&@p3=Microsoft.Dynamics.CRM.TargetFieldType'ValidForCreate'";
         return await GetAsync<T>(queryString);
     }
-    public async Task<ICollection<T>> GetChildrenWithAllColumns<T>(string entityName, string relationFieldName, Guid parentId, string[]? columnNames= null)
+    public async Task<ICollection<T>> GetChildrenWithAllColumns<T>(string entityName, string relationFieldName, Guid parentId, string[]? columnNames = null)
     {
-        var select = columnNames != null ? $"&$select={string.Join(",", columnNames)}":"";
+        var select = columnNames != null ? $"&$select={string.Join(",", columnNames)}" : "";
         var filter = $"?$filter={relationFieldName} eq {parentId}";
-        return await RetrieveAllMultipleRecordsAsync<T>(entityName, filter+select);
+        return await RetrieveAllMultipleRecordsAsync<T>(entityName, filter + select);
 
     }
-    public async Task<ICollection<T>> GetM2NChildrenWithAllColumns<T>(EntityReference parentEntity, string relationFieldName, string[]? columnNames= null)
+    public async Task<ICollection<T>> GetM2NChildrenWithAllColumns<T>(EntityReference parentEntity, string relationFieldName, string[]? columnNames = null)
     {
-        var select = columnNames != null ? $"($select={string.Join(",", columnNames)})":"";
+        var select = columnNames != null ? $"($select={string.Join(",", columnNames)})" : "";
         var entity = await RetrieveRecordAsync<JObject>(parentEntity.LogicalName, parentEntity.Id, $"?$expand={relationFieldName}{select}");
         if (entity == null)
         {
@@ -248,7 +263,8 @@ public class SimpleDynamicsConnector
             }
         }
     }
-    public async Task RemoveRelationship(EntityReference parent, string relationField, Guid relReference) {
+    public async Task RemoveRelationship(EntityReference parent, string relationField, Guid relReference)
+    {
         var path = $"{BuildPluralNameForEntity(parent.LogicalName)}({parent.Id})/{relationField}({relReference})/$ref";
         using HttpRequestMessage request = await BuildRequestMessageAsync(HttpMethod.Delete, path);
         using HttpResponseMessage response = await _client.SendAsync(request);

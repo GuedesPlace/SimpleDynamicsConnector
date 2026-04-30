@@ -5,8 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>GuedesPlace.SimpleDynamicsConnector</PackageId>
-    <RootNamespace>uedesPlace.SimpleDynamicsConnector</RootNamespace>
-    <Version>1.2.0</Version>
+    <RootNamespace>GuedesPlace.SimpleDynamicsConnector</RootNamespace>
+    <Version>1.2.1</Version>
     <Authors>Christian Güdemann</Authors>
     <Company>GuedesPlace</Company>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
@@ -24,7 +24,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.2" />
-    <PackageReference Include="Microsoft.Identity.Client" Version="4.67.2" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.83.3" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
   <ItemGroup>
