@@ -15,7 +15,7 @@ public static class JObjectExtensions
         foreach (var property in json.Properties())
         {
 
-            if (!(property.Name.StartsWith("_") && property.Name.EndsWith("_value")))
+            if (!(property.Name.StartsWith('_') && property.Name.EndsWith("_value")))
             {
                 result.Add(property);
             }

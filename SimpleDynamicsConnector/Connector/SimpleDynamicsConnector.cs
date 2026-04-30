@@ -4,7 +4,9 @@ using Newtonsoft.Json;
 using System.Text;
 using GuedesPlace.SimpleDynamicsConnector.Models;
 using GuedesPlace.SimpleDynamicsConnector.Extensions;
+using GuedesPlace.SimpleDynamicsConnector.Exceptions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json.Linq;
 
 namespace GuedesPlace.SimpleDynamicsConnector;
@@ -16,20 +18,14 @@ public class SimpleDynamicsConnector
     private readonly IConfidentialClientApplication _clientAuthApp;
     private readonly HttpClient _client;
     private readonly DynamicsConnectionConfiguration _configuration;
-    public SimpleDynamicsConnector(HttpClient client, IOptions<DynamicsConnectionConfiguration> configuration)
+    public SimpleDynamicsConnector(
+        HttpClient client, 
+        IOptions<DynamicsConnectionConfiguration> configuration,
+        [FromKeyedServices("SimpleDynamicsConnector")] IConfidentialClientApplication clientAuthApp)
     {
         _configuration = configuration.Value;
-        string authority = $"https://login.microsoftonline.com/{_configuration.TenantId}";
-
-        _clientAuthApp = ConfidentialClientApplicationBuilder.Create(_configuration.ApplicationId).WithClientSecret(_configuration.ApplicationSecret).WithAuthority(authority).Build();
-        _clientAuthApp.AppTokenCache.SetCacheOptions(CacheOptions.EnableSharedCacheOptions);
+        _clientAuthApp = clientAuthApp;
         _client = client;
-        _client.BaseAddress = new Uri(_configuration.CrmUrl + APIPATH);
-        _client.DefaultRequestHeaders.Add("Prefer", "odata.include-annotations=\"*\"");
-        _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        _client.DefaultRequestHeaders.AcceptCharset.Add(new StringWithQualityHeaderValue("utf-8"));
-        _client.DefaultRequestHeaders.Add("OData-MaxVersion", "4.0");
-        _client.DefaultRequestHeaders.Add("OData-Version", "4.0");
     }
 
     public HttpClient GetClient()
@@ -78,11 +74,11 @@ public class SimpleDynamicsConnector
             {
                 return new Guid(values.First<string>().Split('(')[1].Split(')')[0]);
             }
-            throw await BuildException("POST", path, response, payloadAsString, "NO OData-EntityId in Header found!");
+            throw new DynamicsMissingEntityIdException(path, payloadAsString);
         }
         else
         {
-            throw await BuildException("POST", path, response, payloadAsString);
+            throw await response.ToDynamicsExceptionAsync("POST", path, payloadAsString);
         }
     }
     public async Task UpdateRecordAsync(string entityName, Guid id, object payload)
@@ -95,7 +91,7 @@ public class SimpleDynamicsConnector
         using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
-            throw await BuildException("PATCH", path, response, payloadAsString);
+            throw await response.ToDynamicsExceptionAsync("PATCH", path, payloadAsString);
         }
     }
 
@@ -106,7 +102,7 @@ public class SimpleDynamicsConnector
         using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
-            throw await BuildException("DELETE", path, response, "");
+            throw await response.ToDynamicsExceptionAsync("DELETE", path);
         }
     }
     public async Task<T?> RetrieveRecordAsync<T>(string entityName, Guid id, string options = "")
@@ -116,9 +112,9 @@ public class SimpleDynamicsConnector
         using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
-            throw await BuildException("GET", path, response, "");
+            throw await response.ToDynamicsExceptionAsync("GET", path);
         }
-        return await BuildResultObject<T>(response);
+        return await response.ToObjectAsync<T>();
     }
 
     public async Task<MultipleRecordsResponse<T>?> RetrieveMultipleRecordsAsync<T>(string entityName, string options = "", int maxPageSize = 5000)
@@ -129,9 +125,9 @@ public class SimpleDynamicsConnector
         using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
-            throw await BuildException("GET", path, response, "");
+            throw await response.ToDynamicsExceptionAsync("GET", path);
         }
-        return await BuildResultObject<MultipleRecordsResponse<T>>(response);
+        return await response.ToObjectAsync<MultipleRecordsResponse<T>>();
     }
 
     public async Task<ICollection<T>> RetrieveAllMultipleRecordsAsync<T>(string entityName, string options, int maxPageSize = 5000)
@@ -168,9 +164,9 @@ public class SimpleDynamicsConnector
         using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
-            throw await BuildException("GET", path, response, "");
+            throw await response.ToDynamicsExceptionAsync("GET", path);
         }
-        return await BuildResultObject<T>(response);
+        return await response.ToObjectAsync<T>();
     }
     public async Task<T?> GetAsync<T>(string path, int maxPageSize)
     {
@@ -179,9 +175,9 @@ public class SimpleDynamicsConnector
         using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
-            throw await BuildException("GET", path, response, "");
+            throw await response.ToDynamicsExceptionAsync("GET", path);
         }
-        return await BuildResultObject<T>(response);
+        return await response.ToObjectAsync<T>();
     }
 
     public async Task<Stream> GetBinaryAsync(string path)
@@ -204,9 +200,9 @@ public class SimpleDynamicsConnector
         using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
-            throw await BuildException("POST", path, response, payload);
+            throw await response.ToDynamicsExceptionAsync("POST", path, payload);
         }
-        return await BuildResultObject<T>(response);
+        return await response.ToObjectAsync<T>();
     }
     public async Task<T?> ExecuteInitializeFrom<T>(EntityReference entityMoniker, string targetLogicalName)
     {
@@ -270,14 +266,8 @@ public class SimpleDynamicsConnector
         using HttpResponseMessage response = await _client.SendAsync(request);
         if (!response.IsSuccessStatusCode)
         {
-            throw await BuildException("DELETE", path, response, "");
+            throw await response.ToDynamicsExceptionAsync("DELETE", path);
         }
-    }
-
-    private static async Task<T?> BuildResultObject<T>(HttpResponseMessage response)
-    {
-        string result = await response.Content.ReadAsStringAsync();
-        return JsonConvert.DeserializeObject<T>(result);
     }
 
     public async Task<string> ExecuteBatchAsync(ICollection<BatchInstruction> instructions)
@@ -307,15 +297,8 @@ Content-Type: application/json;type=entry
         {
             return await response.Content.ReadAsStringAsync();
         }
-        throw await BuildException("POST", "batch$", response, batchPayload);
+        throw await response.ToDynamicsExceptionAsync("POST", "batch$", batchPayload);
 
-    }
-
-    private static async Task<Exception> BuildException(string methode, string path, HttpResponseMessage response, string payload, string? optionalMessage = null)
-    {
-        string errorContent = await response.Content.ReadAsStringAsync();
-        var msg = string.IsNullOrEmpty(optionalMessage) ? "" : optionalMessage;
-        throw new Exception($"Error {msg} during {methode} - Path: {path} stateCode: {response.StatusCode}  message: {response.ReasonPhrase} errorContent: {errorContent} |Data: {payload}");
     }
     private static MediaTypeHeaderValue BuildBatchMediaType(string batchIdentifier)
     {
@@ -333,10 +316,17 @@ Content-Type: application/json;type=entry
         {
             return _configuration.CustomTablePluralMapping[entityName];
         }
-        return (entityName.EndsWith("ch") || entityName.EndsWith("s") || entityName.EndsWith("sh") || entityName.EndsWith("x") || entityName.EndsWith("z")) ?
-               entityName + "es" :
-               entityName.EndsWith("y") ? entityName.Substring(0, entityName.Length - 1) + "ies" :
-               entityName.EndsWith("f") ? entityName.Substring(0, entityName.Length - 1) + "ves" :
-               entityName + "s";
+        if (entityName.EndsWith("ch") || entityName.EndsWith('s') || entityName.EndsWith("sh") || entityName.EndsWith('x') || entityName.EndsWith('z')) {
+            return entityName + "es";
+        }
+        else if (entityName.EndsWith('y'))
+        {
+            return entityName[..^1] + "ies";
+        }
+        else if (entityName.EndsWith('f'))
+        {
+            return entityName[..^1] + "ves";
+        }
+        return entityName + "s";
     }
 }
