@@ -5,6 +5,7 @@ using System.Text;
 using GuedesPlace.SimpleDynamicsConnector.Models;
 using GuedesPlace.SimpleDynamicsConnector.Extensions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json.Linq;
 
 namespace GuedesPlace.SimpleDynamicsConnector;
@@ -16,20 +17,14 @@ public class SimpleDynamicsConnector
     private readonly IConfidentialClientApplication _clientAuthApp;
     private readonly HttpClient _client;
     private readonly DynamicsConnectionConfiguration _configuration;
-    public SimpleDynamicsConnector(HttpClient client, IOptions<DynamicsConnectionConfiguration> configuration)
+    public SimpleDynamicsConnector(
+        HttpClient client, 
+        IOptions<DynamicsConnectionConfiguration> configuration,
+        [FromKeyedServices("SimpleDynamicsConnector")] IConfidentialClientApplication clientAuthApp)
     {
         _configuration = configuration.Value;
-        string authority = $"https://login.microsoftonline.com/{_configuration.TenantId}";
-
-        _clientAuthApp = ConfidentialClientApplicationBuilder.Create(_configuration.ApplicationId).WithClientSecret(_configuration.ApplicationSecret).WithAuthority(authority).Build();
-        _clientAuthApp.AppTokenCache.SetCacheOptions(CacheOptions.EnableSharedCacheOptions);
+        _clientAuthApp = clientAuthApp;
         _client = client;
-        _client.BaseAddress = new Uri(_configuration.CrmUrl + APIPATH);
-        _client.DefaultRequestHeaders.Add("Prefer", "odata.include-annotations=\"*\"");
-        _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        _client.DefaultRequestHeaders.AcceptCharset.Add(new StringWithQualityHeaderValue("utf-8"));
-        _client.DefaultRequestHeaders.Add("OData-MaxVersion", "4.0");
-        _client.DefaultRequestHeaders.Add("OData-Version", "4.0");
     }
 
     public HttpClient GetClient()
