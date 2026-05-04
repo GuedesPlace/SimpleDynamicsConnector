@@ -19,7 +19,7 @@ public static class ServiceCollectionExtensions
         string tenantId,
         string applicationId,
         string applicationSecret,
-        Dictionary<string, string>? customPluralTableNames = null)
+        Dictionary<string, string>? customPluralTableNames = null, int standardTimeoutSeconds = 60)
     {
         // Validate input parameters
         ArgumentException.ThrowIfNullOrWhiteSpace(crmUrl, nameof(crmUrl));
@@ -34,7 +34,7 @@ public static class ServiceCollectionExtensions
             config.TenantId = tenantId;
             config.ApplicationId = applicationId;
             config.ApplicationSecret = applicationSecret;
-            config.CustomTablePluralMapping = customPluralTableNames ?? new Dictionary<string, string>();
+            config.CustomTablePluralMapping = customPluralTableNames ?? [];
         });
 
         // Register IConfidentialClientApplication as keyed singleton
@@ -103,7 +103,7 @@ public static class ServiceCollectionExtensions
             });
 
             // Add timeout policy
-            builder.AddTimeout(TimeSpan.FromSeconds(60));
+            builder.AddTimeout(TimeSpan.FromSeconds(standardTimeoutSeconds));
         });
 
         return services;
