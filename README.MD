@@ -33,7 +33,8 @@ builder.Services.AddSimpleDynamicsConnector(
     tenantId: tenantId,
     applicationId: applicationId,
     applicationSecret: applicationSecret,
-    customPluralTableNames: null // Optional: Dictionary<string, string> for custom entity plural names
+    customPluralTableNames: null, // Optional: Dictionary<string, string> for custom entity plural names
+    standardTimeoutSeconds: 60 // Optional: Standard RequestTimeout
 );
 ```
 
