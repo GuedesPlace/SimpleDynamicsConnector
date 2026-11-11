@@ -5,6 +5,259 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0-preview.1] - 2026-11-11
+
+### ⚠️ Breaking Changes
+
+#### `ApplicationSecret` is no longer `required`
+
+The `DynamicsConnectionConfiguration` model no longer marks `ApplicationSecret` as `required` and its type changed from `string` to `string?`. This enables the new CLI authentication flows, which do not use a client secret.
+
+**v2.x (Old):**
+```csharp
+public class DynamicsConnectionConfiguration
+{
+    required public string CrmUrl { set; get; }
+    required public string TenantId { set; get; }
+    required public string ApplicationId { set; get; }
+    required public string ApplicationSecret { set; get; }
+    ...
+}
+```
+
+**v3.0.0 (New):**
+```csharp
+public class DynamicsConnectionConfiguration
+{
+    required public string CrmUrl { set; get; }
+    required public string TenantId { set; get; }
+    required public string ApplicationId { set; get; }
+    public string? ApplicationSecret { set; get; }   // nullable, optional for CLI auth
+    public DynamicsAuthenticationMode AuthenticationMode { set; get; } = DynamicsAuthenticationMode.ClientCredentials;
+    ...
+}
+```
+
+**Impact:** Any code that directly initialises `DynamicsConnectionConfiguration` and relied on the `required` keyword for `ApplicationSecret` will now compile without it. The `AddSimpleDynamicsConnector()` extension method still validates the secret at startup via `ArgumentException.ThrowIfNullOrWhiteSpace`, so server-side behavior is unchanged.
+
+#### Keyed DI service type changed from `IConfidentialClientApplication` to `IDynamicsTokenProvider`
+
+The internal keyed singleton registered under `"SimpleDynamicsConnector"` changed its type. This only affects code that explicitly resolves the keyed service directly.
+
+**v2.x (Old):**
+```csharp
+// If you resolved the keyed service directly:
+var authApp = serviceProvider.GetRequiredKeyedService<IConfidentialClientApplication>("SimpleDynamicsConnector");
+```
+
+**v3.0.0 (New):**
+```csharp
+var tokenProvider = serviceProvider.GetRequiredKeyedService<IDynamicsTokenProvider>("SimpleDynamicsConnector");
+```
+
+**Impact:** Direct `IConfidentialClientApplication` keyed service resolution will throw at runtime. Update to `IDynamicsTokenProvider` if needed.
+
+#### Constructor signature of `SimpleDynamicsConnector` changed
+
+**v2.x (Old):**
+```csharp
+public SimpleDynamicsConnector(
+    HttpClient client,
+    IOptions<DynamicsConnectionConfiguration> configuration,
+    [FromKeyedServices("SimpleDynamicsConnector")] IConfidentialClientApplication clientAuthApp)
+```
+
+**v3.0.0 (New):**
+```csharp
+public SimpleDynamicsConnector(
+    HttpClient client,
+    IOptions<DynamicsConnectionConfiguration> configuration,
+    [FromKeyedServices("SimpleDynamicsConnector")] IDynamicsTokenProvider tokenProvider)
+```
+
+**Impact:** Direct instantiation of `SimpleDynamicsConnector` outside DI requires updating the third parameter. DI-based usage via the extension methods is unaffected.
+
+---
+
+### ✨ New Features
+
+#### CLI Authentication – Interactive Browser Login
+
+A new extension method enables delegated user authentication via a browser popup:
+
+```csharp
+services.AddSimpleDynamicsConnectorWithInteractiveAuth(
+    crmUrl: "https://contoso.crm.dynamics.com",
+    tenantId: "your-tenant-id",
+    applicationId: "your-public-client-app-id"
+);
+```
+
+- Suitable for **desktop CLIs** and tools with UI access
+- Opens the system browser for the user to sign in
+- Tokens are cached silently for subsequent requests
+- No `applicationSecret` required
+
+#### CLI Authentication – Device Code Flow
+
+A new extension method enables the device code flow for headless environments:
+
+```csharp
+services.AddSimpleDynamicsConnectorWithDeviceCodeAuth(
+    crmUrl: "https://contoso.crm.dynamics.com",
+    tenantId: "your-tenant-id",
+    applicationId: "your-public-client-app-id"
+);
+```
+
+- Suitable for **headless CLIs**, SSH sessions, and environments without a browser
+- Prints a code and URL to the console (e.g. `Visit https://microsoft.com/devicelogin and enter code ABCD-1234`)
+- Tokens are cached silently for subsequent requests
+- No `applicationSecret` required
+
+**Custom device code callback:**
+```csharp
+services.AddSimpleDynamicsConnectorWithDeviceCodeAuth(
+    crmUrl: "https://contoso.crm.dynamics.com",
+    tenantId: "your-tenant-id",
+    applicationId: "your-public-client-app-id",
+    deviceCodeCallback: result =>
+    {
+        // Custom output, e.g. structured logging or QR code generation
+        myLogger.LogInformation("Sign in: {Message}", result.Message);
+        return Task.CompletedTask;
+    }
+);
+```
+
+#### `IDynamicsTokenProvider` Abstraction
+
+A new public interface decouples the connector from the underlying authentication strategy:
+
+```csharp
+public interface IDynamicsTokenProvider
+{
+    Task<string> GetAccessTokenAsync(string resource, CancellationToken cancellationToken = default);
+}
+```
+
+You can implement this interface to supply tokens from any source (e.g. managed identity, certificate, custom cache) and register it as the keyed service.
+
+#### `DynamicsAuthenticationMode` Enum
+
+A new enum identifies the active authentication strategy:
+
+```csharp
+public enum DynamicsAuthenticationMode
+{
+    ClientCredentials,  // App-only (server)
+    Interactive,        // Browser popup (desktop CLI)
+    DeviceCode          // Device code flow (headless CLI)
+}
+```
+
+The active mode is stored on `DynamicsConnectionConfiguration.AuthenticationMode` and set automatically by the respective registration method.
+
+---
+
+### 🔧 Improvements
+
+#### Simplified `BuildRequestMessageAsync`
+
+Token acquisition is now delegated entirely to the registered `IDynamicsTokenProvider`. The manual retry loop previously embedded in `BuildRequestMessageAsync` has been moved into `ClientCredentialsTokenProvider`, keeping the method lean:
+
+```csharp
+public async Task<HttpRequestMessage> BuildRequestMessageAsync(HttpMethod method, string path)
+{
+    var request = new HttpRequestMessage(method, path);
+    var token = await _tokenProvider.GetAccessTokenAsync(_configuration.CrmUrl);
+    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+    return request;
+}
+```
+
+#### Shared Token Cache for Public Client Flows
+
+Both `Interactive` and `DeviceCode` flows use `EnableSharedCacheOptions` on `UserTokenCache`, matching the existing behavior for client credentials. This minimises interactive prompts across restarts when the cache is persisted.
+
+---
+
+### 📦 Dependencies
+
+No new NuGet packages are required. The `IPublicClientApplication` and `DeviceCodeResult` types are already provided by `Microsoft.Identity.Client` (4.83.3).
+
+---
+
+### 📖 Entra ID App Registration Requirements
+
+#### For `AddSimpleDynamicsConnector` (Client Credentials) – Unchanged
+
+No changes needed. Confidential client apps continue to work without modification.
+
+#### For `AddSimpleDynamicsConnectorWithInteractiveAuth`
+
+The app registration must be configured as a **Public Client**:
+
+1. In **Azure Portal → App Registration → Authentication**
+2. Add a **Mobile and desktop applications** redirect URI: `http://localhost`
+3. Ensure **Treat application as a public client** is **not** disabled
+4. Add a delegated permission: `Dynamics CRM → user_impersonation`
+
+#### For `AddSimpleDynamicsConnectorWithDeviceCodeAuth`
+
+1. In **Azure Portal → App Registration → Authentication**
+2. Enable **Allow public client flows** → set to **Yes**
+3. Add a delegated permission: `Dynamics CRM → user_impersonation`
+
+---
+
+### 📖 Migration Guide: v2.x → v3.0.0
+
+This guide applies if you are upgrading an existing server-side application that uses `AddSimpleDynamicsConnector`. **No action is required for new CLI applications** using the new methods.
+
+#### Step-by-Step Checklist
+
+- [ ] **Update the NuGet package** to `3.0.0-preview.1`
+  ```xml
+  <PackageReference Include="GuedesPlace.SimpleDynamicsConnector" Version="3.0.0-preview.1" />
+  ```
+
+- [ ] **Check for direct keyed service resolution** (rare)
+  - Search for `GetRequiredKeyedService<IConfidentialClientApplication>`
+  - Replace with `GetRequiredKeyedService<IDynamicsTokenProvider>`
+
+- [ ] **Check for direct constructor calls** to `SimpleDynamicsConnector` (rare)
+  - Update the third parameter from `IConfidentialClientApplication` to `IDynamicsTokenProvider`
+  - Or switch to DI-based usage
+
+- [ ] **Check `DynamicsConnectionConfiguration` initializers** (rare)
+  - If you initialize the class directly with object initializer syntax, `ApplicationSecret` no longer needs to be set for non-credentials flows
+  - Existing code that sets it still compiles without changes
+
+- [ ] **No changes needed to `AddSimpleDynamicsConnector` call sites** – the method signature is unchanged
+
+- [ ] **Test your application**
+  - [ ] Token acquisition still works
+  - [ ] CRUD operations succeed
+  - [ ] No DI resolution errors at startup
+
+---
+
+### 📝 Backward Compatibility
+
+The following APIs are **unchanged** and require no migration:
+
+✅ `AddSimpleDynamicsConnector(crmUrl, tenantId, applicationId, applicationSecret, ...)` – identical signature  
+✅ All CRUD methods – `CreateRecordAsync`, `RetrieveRecordAsync`, `UpdateRecordAsync`, `DeleteRecordAsync`  
+✅ Batch operations – `ExecuteBatchAsync`  
+✅ Relationship methods – `AddRelationship`, `RemoveRelationship`  
+✅ Query methods – `RetrieveMultipleRecordsAsync`, `RetrieveAllMultipleRecordsAsync`, `GetAsync<T>`  
+✅ Resilience handler – same RetryAfter support, same timeout defaults  
+✅ Exception types – all exception classes unchanged  
+✅ OData query string handling – unchanged  
+
+---
+
 ## [2.0.0] - 2026-04-30
 
 ### ⚠️ Breaking Changes
@@ -432,5 +685,6 @@ var app = builder.Build();
 
 ---
 
+[3.0.0-preview.1]: https://github.com/GuedesPlace/SimpleDynamicsConnector/releases/tag/v3.0.0-preview.1
 [2.0.0]: https://github.com/GuedesPlace/SimpleDynamicsConnector/releases/tag/v2.0.0
 [1.2.1]: https://github.com/GuedesPlace/SimpleDynamicsConnector/releases/tag/v1.2.1

@@ -1,7 +1,7 @@
-using Microsoft.Identity.Client;
 using System.Net.Http.Headers;
 using Newtonsoft.Json;
 using System.Text;
+using GuedesPlace.SimpleDynamicsConnector.Abstractions;
 using GuedesPlace.SimpleDynamicsConnector.Models;
 using GuedesPlace.SimpleDynamicsConnector.Extensions;
 using GuedesPlace.SimpleDynamicsConnector.Exceptions;
@@ -15,16 +15,16 @@ public class SimpleDynamicsConnector
 {
     public static readonly string MEDIAJSON = "application/json";
     public static readonly string APIPATH = "/api/data/v9.2/";
-    private readonly IConfidentialClientApplication _clientAuthApp;
+    private readonly IDynamicsTokenProvider _tokenProvider;
     private readonly HttpClient _client;
     private readonly DynamicsConnectionConfiguration _configuration;
     public SimpleDynamicsConnector(
         HttpClient client, 
         IOptions<DynamicsConnectionConfiguration> configuration,
-        [FromKeyedServices("SimpleDynamicsConnector")] IConfidentialClientApplication clientAuthApp)
+        [FromKeyedServices("SimpleDynamicsConnector")] IDynamicsTokenProvider tokenProvider)
     {
         _configuration = configuration.Value;
-        _clientAuthApp = clientAuthApp;
+        _tokenProvider = tokenProvider;
         _client = client;
     }
 
@@ -40,23 +40,9 @@ public class SimpleDynamicsConnector
     public async Task<HttpRequestMessage> BuildRequestMessageAsync(HttpMethod method, string path)
     {
         var request = new HttpRequestMessage(method, path);
-        int maxRetries = 3;
-        for (int i = 0; i < maxRetries; i++)
-        {
-            try
-            {
-                var authResult = await _clientAuthApp
-                    .AcquireTokenForClient([$"{_configuration.CrmUrl}/.default"])
-                    .ExecuteAsync();
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", authResult.AccessToken);
-                return request;
-            }
-            catch (HttpRequestException) when (i < maxRetries - 1)
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(Math.Pow(2, i) * 100));
-            }
-        }
-        throw new HttpRequestException("Failed to acquire token after multiple retries.");
+        var token = await _tokenProvider.GetAccessTokenAsync(_configuration.CrmUrl);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return request;
     }
 
     public async Task<Guid> CreateRecordAsync(string entityName, object payload)
